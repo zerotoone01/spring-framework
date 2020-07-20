@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2019 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,14 +25,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Consumer;
 
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
 import org.springframework.core.ResolvableType;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
+import org.springframework.core.io.buffer.LimitedDataBufferList;
 import org.springframework.core.io.buffer.PooledDataBuffer;
 import org.springframework.core.log.LogFormatUtils;
 import org.springframework.lang.Nullable;
@@ -92,11 +95,44 @@ public final class StringDecoder extends AbstractDataBufferDecoder<String> {
 
 		List<byte[]> delimiterBytes = getDelimiterBytes(mimeType);
 
-		Flux<DataBuffer> inputFlux = Flux.from(input)
-				.flatMapIterable(buffer -> splitOnDelimiter(buffer, delimiterBytes))
-				.bufferUntil(buffer -> buffer == END_FRAME)
-				.map(StringDecoder::joinUntilEndFrame)
-				.doOnDiscard(PooledDataBuffer.class, DataBufferUtils::release);
+		Flux<DataBuffer> inputFlux = Flux.defer(() -> {
+			if (getMaxInMemorySize() != -1) {
+
+				// Passing limiter into endFrameAfterDelimiter helps to ensure that in case of one DataBuffer
+				// containing multiple lines, the limit is checked and raised  immediately without accumulating
+				// subsequent lines. This is necessary because concatMapIterable doesn't respect doOnDiscard.
+				// When reactor-core#1925 is resolved, we could replace bufferUntil with:
+
+				//	.windowUntil(buffer -> buffer instanceof EndFrameBuffer)
+				//	.concatMap(fluxes -> fluxes.collect(() -> new LimitedDataBufferList(getMaxInMemorySize()), LimitedDataBufferList::add))
+
+				LimitedDataBufferList limiter = new LimitedDataBufferList(getMaxInMemorySize());
+
+				return Flux.from(input)
+						.concatMapIterable(buffer -> splitOnDelimiter(buffer, delimiterBytes, limiter))
+						.bufferUntil(buffer -> buffer == END_FRAME)
+						.map(StringDecoder::joinUntilEndFrame)
+						.doOnDiscard(PooledDataBuffer.class, DataBufferUtils::release);
+			}
+			else {
+
+				// When the decoder is unlimited (-1), concatMapIterable will cache buffers that may not
+				// be released if cancel is signalled before they are turned into String lines
+				// (see test maxInMemoryLimitReleasesUnprocessedLinesWhenUnlimited).
+				// When reactor-core#1925 is resolved, the workaround can be removed and the entire
+				// else clause possibly dropped.
+
+				ConcatMapIterableDiscardWorkaroundCache cache = new ConcatMapIterableDiscardWorkaroundCache();
+
+				return Flux.from(input)
+						.concatMapIterable(buffer -> cache.addAll(splitOnDelimiter(buffer, delimiterBytes, null)))
+						.doOnNext(cache)
+						.doOnCancel(cache)
+						.bufferUntil(buffer -> buffer == END_FRAME)
+						.map(StringDecoder::joinUntilEndFrame)
+						.doOnDiscard(PooledDataBuffer.class, DataBufferUtils::release);
+			}
+		});
 
 		return super.decode(inputFlux, elementType, mimeType, hints);
 	}
@@ -116,7 +152,9 @@ public final class StringDecoder extends AbstractDataBufferDecoder<String> {
 	 * Split the given data buffer on delimiter boundaries.
 	 * The returned Flux contains an {@link #END_FRAME} buffer after each delimiter.
 	 */
-	private List<DataBuffer> splitOnDelimiter(DataBuffer buffer, List<byte[]> delimiterBytes) {
+	private List<DataBuffer> splitOnDelimiter(
+			DataBuffer buffer, List<byte[]> delimiterBytes, @Nullable LimitedDataBufferList limiter) {
+
 		List<DataBuffer> frames = new ArrayList<>();
 		try {
 			do {
@@ -138,14 +176,27 @@ public final class StringDecoder extends AbstractDataBufferDecoder<String> {
 					buffer.readPosition(readPosition + length + matchingDelimiter.length);
 					frames.add(DataBufferUtils.retain(frame));
 					frames.add(END_FRAME);
+					if (limiter != null) {
+						limiter.add(frame); // enforce the limit
+						limiter.clear();
+					}
 				}
 				else {
 					frame = buffer.slice(readPosition, buffer.readableByteCount());
 					buffer.readPosition(readPosition + buffer.readableByteCount());
 					frames.add(DataBufferUtils.retain(frame));
+					if (limiter != null) {
+						limiter.add(frame);
+					}
 				}
 			}
 			while (buffer.readableByteCount() > 0);
+		}
+		catch (DataBufferLimitException ex) {
+			if (limiter != null) {
+				limiter.releaseAndClear();
+			}
+			throw ex;
 		}
 		catch (Throwable ex) {
 			for (DataBuffer frame : frames) {
@@ -281,6 +332,35 @@ public final class StringDecoder extends AbstractDataBufferDecoder<String> {
 	public static StringDecoder allMimeTypes(List<String> delimiters, boolean stripDelimiter) {
 		return new StringDecoder(delimiters, stripDelimiter,
 				new MimeType("text", "plain", DEFAULT_CHARSET), MimeTypeUtils.ALL);
+	}
+
+
+	private class ConcatMapIterableDiscardWorkaroundCache implements Consumer<DataBuffer>, Runnable {
+
+		private final List<DataBuffer> buffers = new ArrayList<>();
+
+
+		public List<DataBuffer> addAll(List<DataBuffer> buffersToAdd) {
+			this.buffers.addAll(buffersToAdd);
+			return buffersToAdd;
+		}
+
+		@Override
+		public void accept(DataBuffer dataBuffer) {
+			this.buffers.remove(dataBuffer);
+		}
+
+		@Override
+		public void run() {
+			this.buffers.forEach(buffer -> {
+				try {
+					DataBufferUtils.release(buffer);
+				}
+				catch (Throwable ex) {
+					// Keep going..
+				}
+			});
+		}
 	}
 
 }

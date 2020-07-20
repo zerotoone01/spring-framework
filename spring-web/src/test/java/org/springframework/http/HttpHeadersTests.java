@@ -32,11 +32,13 @@ import java.util.EnumSet;
 import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map.Entry;
 import java.util.TimeZone;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
+import static java.util.stream.Collectors.toList;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
 
@@ -47,6 +49,7 @@ import static org.junit.Assert.*;
  * @author Sebastien Deleuze
  * @author Brian Clozel
  * @author Juergen Hoeller
+ * @author Sam Brannen
  */
 public class HttpHeadersTests {
 
@@ -514,7 +517,6 @@ public class HttpHeadersTests {
 		assertTrue(headers.getFirstZonedDateTime(HttpHeaders.DATE).isEqual(date));
 
 		headers.clear();
-		ZonedDateTime otherDate = ZonedDateTime.of(2010, 12, 18, 10, 20, 0, 0, ZoneId.of("GMT"));
 		headers.add(HttpHeaders.DATE, "Fri, 02 Jun 2017 02:22:00 GMT");
 		headers.add(HttpHeaders.DATE, "Sat, 18 Dec 2010 10:20:00 GMT");
 		assertTrue(headers.getFirstZonedDateTime(HttpHeaders.DATE).isEqual(date));
@@ -558,4 +560,130 @@ public class HttpHeadersTests {
 		assertEquals("Bearer foo", authorization);
 	}
 
+	@Test // https://github.com/spring-projects/spring-framework/issues/23633
+	public void keySetRemove() {
+		// Given
+		headers.add("Alpha", "apple");
+		headers.add("Bravo", "banana");
+		assertEquals(2, headers.size());
+		assertTrue("Alpha should be present", headers.containsKey("Alpha"));
+		assertTrue("Bravo should be present", headers.containsKey("Bravo"));
+		assertArrayEquals(new String[] {"Alpha", "Bravo"}, headers.keySet().toArray());
+
+		// When
+		boolean removed = headers.keySet().remove("Alpha");
+
+		// Then
+		assertTrue(removed);
+		assertFalse(headers.keySet().remove("Alpha"));
+		assertEquals(1, headers.size());
+		assertFalse("Alpha should have been removed", headers.containsKey("Alpha"));
+		assertTrue("Bravo should be present", headers.containsKey("Bravo"));
+		assertArrayEquals(new String[] {"Bravo"}, headers.keySet().toArray());
+		assertEquals(Collections.singletonMap("Bravo", Arrays.asList("banana")).entrySet(), headers.entrySet());
+	}
+
+	@Test
+	public void keySetOperations() {
+		headers.add("Alpha", "apple");
+		headers.add("Bravo", "banana");
+		assertEquals(2, headers.size());
+
+		// size()
+		assertEquals(2, headers.keySet().size());
+
+		// contains()
+		assertTrue("Alpha should be present", headers.keySet().contains("Alpha"));
+		assertTrue("alpha should be present", headers.keySet().contains("alpha"));
+		assertTrue("Bravo should be present", headers.keySet().contains("Bravo"));
+		assertTrue("BRAVO should be present", headers.keySet().contains("BRAVO"));
+		assertFalse("Charlie should not be present", headers.keySet().contains("Charlie"));
+
+		// toArray()
+		assertArrayEquals(new String[] {"Alpha", "Bravo"}, headers.keySet().toArray());
+
+		// spliterator() via stream()
+		assertEquals(Arrays.asList("Alpha", "Bravo"), headers.keySet().stream().collect(toList()));
+
+		// iterator()
+		List<String> results = new ArrayList<>();
+		headers.keySet().iterator().forEachRemaining(results::add);
+		assertEquals(Arrays.asList("Alpha", "Bravo"), results);
+
+		// remove()
+		assertTrue(headers.keySet().remove("Alpha"));
+		assertEquals(1, headers.size());
+		assertFalse(headers.keySet().remove("Alpha"));
+
+		// clear()
+		headers.keySet().clear();
+		assertEquals(0, headers.size());
+
+		// Unsupported operations
+		unsupported(() -> headers.keySet().add("x"));
+		unsupported(() -> headers.keySet().addAll(Collections.singleton("enigma")));
+	}
+
+	private static void unsupported(Runnable runnable) {
+		try {
+			runnable.run();
+			fail("should have thrown an UnsupportedOperationException");
+		}
+		catch (UnsupportedOperationException e) {
+			// expected
+		}
+	}
+
+	@Test
+	public void removalFromKeySetRemovesEntryFromUnderlyingMap() {
+		String headerName = "MyHeader";
+		String headerValue = "value";
+
+		assertTrue(headers.isEmpty());
+		headers.add(headerName, headerValue);
+		assertTrue(headers.containsKey(headerName));
+		headers.keySet().removeIf(key -> key.equals(headerName));
+		assertTrue(headers.isEmpty());
+		headers.add(headerName, headerValue);
+		assertEquals(headerValue, headers.get(headerName).get(0));
+	}
+
+	@Test
+	public void removalFromEntrySetRemovesEntryFromUnderlyingMap() {
+		String headerName = "MyHeader";
+		String headerValue = "value";
+
+		assertTrue(headers.isEmpty());
+		headers.add(headerName, headerValue);
+		assertTrue(headers.containsKey(headerName));
+		headers.entrySet().removeIf(entry -> entry.getKey().equals(headerName));
+		assertTrue(headers.isEmpty());
+		headers.add(headerName, headerValue);
+		assertEquals(headerValue, headers.get(headerName).get(0));
+	}
+
+	@Test
+	public void readOnlyHttpHeadersRetainEntrySetOrder() {
+		headers.add("aardvark", "enigma");
+		headers.add("beaver", "enigma");
+		headers.add("cat", "enigma");
+		headers.add("dog", "enigma");
+		headers.add("elephant", "enigma");
+
+		String[] expectedKeys = new String[] { "aardvark", "beaver", "cat", "dog", "elephant" };
+
+		assertArrayEquals(expectedKeys, headers.entrySet().stream().map(Entry::getKey).toArray());
+
+		HttpHeaders readOnlyHttpHeaders = HttpHeaders.readOnlyHttpHeaders(headers);
+		assertArrayEquals(expectedKeys, readOnlyHttpHeaders.entrySet().stream().map(Entry::getKey).toArray());
+	}
+
+	@Test // gh-25034
+	public void equalsUnwrapsHttpHeaders() {
+		HttpHeaders headers1 = new HttpHeaders();
+		HttpHeaders headers2 = new HttpHeaders(new HttpHeaders(headers1));
+
+		assertEquals(headers1, headers2);
+		assertEquals(headers2, headers1);
+	}
 }

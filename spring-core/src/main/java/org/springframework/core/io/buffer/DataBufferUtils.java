@@ -139,10 +139,8 @@ public abstract class DataBufferUtils {
 				channel -> Flux.create(sink -> {
 					ReadCompletionHandler handler =
 							new ReadCompletionHandler(channel, sink, position, bufferFactory, bufferSize);
-					sink.onDispose(handler::dispose);
-					DataBuffer dataBuffer = bufferFactory.allocateBuffer(bufferSize);
-					ByteBuffer byteBuffer = dataBuffer.asByteBuffer(0, bufferSize);
-					channel.read(byteBuffer, position, dataBuffer, handler);
+					sink.onCancel(handler::cancel);
+					sink.onRequest(handler::request);
 				}),
 				channel -> {
 					// Do not close channel from here, rather wait for the current read callback
@@ -439,14 +437,36 @@ public abstract class DataBufferUtils {
 	 * @since 5.0.3
 	 */
 	public static Mono<DataBuffer> join(Publisher<DataBuffer> dataBuffers) {
-		Assert.notNull(dataBuffers, "'dataBuffers' must not be null");
+		return join(dataBuffers, -1);
+	}
 
-		return Flux.from(dataBuffers)
-				.collectList()
+	/**
+	 * Variant of {@link #join(Publisher)} that behaves the same way up until
+	 * the specified max number of bytes to buffer. Once the limit is exceeded,
+	 * {@link DataBufferLimitException} is raised.
+	 * @param buffers the data buffers that are to be composed
+	 * @param maxByteCount the max number of bytes to buffer, or -1 for unlimited
+	 * @return a buffer with the aggregated content, possibly an empty Mono if
+	 * the max number of bytes to buffer is exceeded.
+	 * @throws DataBufferLimitException if maxByteCount is exceeded
+	 * @since 5.1.11
+	 */
+	@SuppressWarnings("unchecked")
+	public static Mono<DataBuffer> join(Publisher<? extends DataBuffer> buffers, int maxByteCount) {
+		Assert.notNull(buffers, "'dataBuffers' must not be null");
+
+		if (buffers instanceof Mono) {
+			return (Mono<DataBuffer>) buffers;
+		}
+
+		// TODO: Drop doOnDiscard(LimitedDataBufferList.class, ...) (reactor-core#1924)
+
+		return Flux.from(buffers)
+				.collect(() -> new LimitedDataBufferList(maxByteCount), LimitedDataBufferList::add)
 				.filter(list -> !list.isEmpty())
 				.map(list -> list.get(0).factory().join(list))
+				.doOnDiscard(LimitedDataBufferList.class, LimitedDataBufferList::releaseAndClear)
 				.doOnDiscard(PooledDataBuffer.class, DataBufferUtils::release);
-
 	}
 
 
@@ -506,6 +526,8 @@ public abstract class DataBufferUtils {
 
 		private final AtomicLong position;
 
+		private final AtomicBoolean reading = new AtomicBoolean();
+
 		private final AtomicBoolean disposed = new AtomicBoolean();
 
 		public ReadCompletionHandler(AsynchronousFileChannel channel,
@@ -518,43 +540,68 @@ public abstract class DataBufferUtils {
 			this.bufferSize = bufferSize;
 		}
 
+		public void read() {
+			if (this.sink.requestedFromDownstream() > 0 &&
+					isNotDisposed() &&
+					this.reading.compareAndSet(false, true)) {
+				DataBuffer dataBuffer = this.dataBufferFactory.allocateBuffer(this.bufferSize);
+				ByteBuffer byteBuffer = dataBuffer.asByteBuffer(0, this.bufferSize);
+				this.channel.read(byteBuffer, this.position.get(), dataBuffer, this);
+			}
+		}
+
 		@Override
 		public void completed(Integer read, DataBuffer dataBuffer) {
-			if (read != -1 && !this.disposed.get()) {
-				long pos = this.position.addAndGet(read);
-				dataBuffer.writePosition(read);
-				this.sink.next(dataBuffer);
-				// onNext may have led to onCancel (e.g. downstream takeUntil)
-				if (this.disposed.get()) {
-					complete();
+			if (isNotDisposed()) {
+				if (read != -1) {
+					this.position.addAndGet(read);
+					dataBuffer.writePosition(read);
+					this.sink.next(dataBuffer);
+					this.reading.set(false);
+					read();
 				}
 				else {
-					DataBuffer newDataBuffer = this.dataBufferFactory.allocateBuffer(this.bufferSize);
-					ByteBuffer newByteBuffer = newDataBuffer.asByteBuffer(0, this.bufferSize);
-					this.channel.read(newByteBuffer, pos, newDataBuffer, this);
+					release(dataBuffer);
+					closeChannel(this.channel);
+					if (this.disposed.compareAndSet(false, true)) {
+						this.sink.complete();
+					}
+					this.reading.set(false);
 				}
 			}
 			else {
 				release(dataBuffer);
-				complete();
+				closeChannel(this.channel);
+				this.reading.set(false);
 			}
-		}
-
-		private void complete() {
-			this.sink.complete();
-			closeChannel(this.channel);
 		}
 
 		@Override
 		public void failed(Throwable exc, DataBuffer dataBuffer) {
 			release(dataBuffer);
-			this.sink.error(exc);
 			closeChannel(this.channel);
+			if (this.disposed.compareAndSet(false, true)) {
+				this.sink.error(exc);
+			}
+			this.reading.set(false);
 		}
 
-		public void dispose() {
-			this.disposed.set(true);
+		public void request(long n) {
+			read();
 		}
+
+		public void cancel() {
+			if (this.disposed.compareAndSet(false, true)) {
+				if (!this.reading.get()) {
+					closeChannel(this.channel);
+				}
+			}
+		}
+
+		private boolean isNotDisposed() {
+			return !this.disposed.get();
+		}
+
 	}
 
 

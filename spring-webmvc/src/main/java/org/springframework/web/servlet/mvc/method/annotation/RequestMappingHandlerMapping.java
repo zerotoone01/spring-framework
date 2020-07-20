@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+
 import javax.servlet.http.HttpServletRequest;
 
 import org.springframework.context.EmbeddedValueResolverAware;
@@ -225,7 +226,7 @@ public class RequestMappingHandlerMapping extends RequestMappingInfoHandlerMappi
 			}
 			String prefix = getPathPrefix(handlerType);
 			if (prefix != null) {
-				info = RequestMappingInfo.paths(prefix).build().combine(info);
+				info = RequestMappingInfo.paths(prefix).options(this.config).build().combine(info);
 			}
 		}
 		return info;

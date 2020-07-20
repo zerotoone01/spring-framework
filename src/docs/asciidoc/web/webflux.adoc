@@ -761,6 +761,34 @@ for repeated, map-like access to parts, or otherwise rely on the
 `SynchronossPartHttpMessageReader` for a one-time access to `Flux<Part>`.
 
 
+[[webflux-codecs-limits]]
+==== Limits
+
+`Decoder` and `HttpMessageReader` implementations that buffer some or all of the input
+stream can be configured with a limit on the maximum number of bytes to buffer in memory.
+In some cases buffering occurs because input is aggregated and represented as a single
+object, e.g. controller method with `@RequestBody byte[]`, `x-www-form-urlencoded` data,
+and so on. Buffering can also occurs with streaming, when splitting the input stream,
+e.g. delimited text, a stream of JSON objects, and so on. For those streaming cases, the
+limit applies to the number of bytes associted with one object in the stream.
+
+To configure buffer sizes, you can check if a given `Decoder` or `HttpMessageReader`
+exposes a `maxInMemorySize` property and if so the Javadoc will have details about default
+values. In WebFlux, the `ServerCodecConfigurer` provides a
+<<webflux-config-message-codecs,single place>> from where to set all codecs, through the
+`maxInMemorySize` property for default codecs. On the client side, the limit can be changed
+in <<web-reactive.adoc#webflux-client-builder-maxinmemorysize, WebClient.Builder>>.
+
+For <<webflux-codecs-multipart,Multipart parsing>> the `maxInMemorySize` property limits
+the size of non-file parts. For file parts it determines the threshold at which the part
+is written to disk. For file parts written to disk, there is an additional
+`maxDiskUsagePerPart` property to limit the amount of disk space per part. There is also
+a `maxParts` property to limit the overall number of parts in a multipart request.
+To configure all 3 in WebFlux, you'll need to supply a pre-configured instance of
+`MultipartHttpMessageReader` to `ServerCodecConfigurer`.
+
+
+
 [[webflux-codecs-streaming]]
 ==== Streaming
 [.small]#<<web.adoc#mvc-ann-async-http-streaming, Same as in Spring MVC>>#
@@ -830,7 +858,7 @@ while a fully formatted prefix based on that ID is available from
 `DEBUG` and `TRACE` logging can log sensitive information. This is why form parameters and
 headers are masked by default and you must explicitly enable their logging in full.
 
-The followig example shows how to do so for server-side requests:
+The following example shows how to do so for server-side requests:
 
 ====
 [source,java,indent=0]
@@ -855,15 +883,39 @@ The following example shows how to do so for client-side requests:
 [subs="verbatim,quotes"]
 ----
 Consumer<ClientCodecConfigurer> consumer = configurer ->
-		configurer.defaultCodecs().enableLoggingRequestDetails(true);
+        configurer.defaultCodecs().enableLoggingRequestDetails(true);
 
 WebClient webClient = WebClient.builder()
-		.exchangeStrategies(ExchangeStrategies.builder().codecs(consumer).build())
-		.build();
+        .exchangeStrategies(strategies -> strategies.codecs(consumer))
+        .build();
 ----
 ====
 
+[[webflux-codecs-custom]]
+==== Custom codecs
 
+Applications can register custom codecs for supporting additional media types,
+or specific behaviors that are not supported by the default codecs.
+
+Some configuration options expressed by developers are enforced on default codecs.
+Custom codecs might want to get a chance to align with those preferences,
+like <<webflux-codecs-limits, enforcing buffering limits>>
+or <<webflux-logging-sensitive-data, logging sensitive data>>.
+
+The following example shows how to do so for client-side requests:
+
+====
+[source,java,indent=0]
+[subs="verbatim,quotes"]
+----
+	WebClient webClient = WebClient.builder()
+			.codecs(configurer -> {
+					CustomDecoder decoder = new CustomDecoder();
+                    configurer.customCodecs().registerWithDefaultConfig(decoder);
+			})
+			.build();
+----
+====
 
 
 [[webflux-dispatcher-handler]]
@@ -1605,9 +1657,8 @@ and others) and is equivalent to `required=false`.
   See "`Any other argument`" later in this table.
 
 | `Errors`, `BindingResult`
-| For access to errors from validation and data binding for a command object
-  (that is, a `@ModelAttribute` argument) or errors from the validation of a `@RequestBody` or
-  `@RequestPart` argument. An `Errors`, or `BindingResult` argument must be declared
+| For access to errors from validation and data binding for a command object, i.e. a
+  `@ModelAttribute` argument. An `Errors`, or `BindingResult` argument must be declared
   immediately after the validated method argument.
 
 | `SessionStatus` + class-level `@SessionAttributes`
@@ -2262,24 +2313,19 @@ you can declare a concrete target `Object`, instead of `Part`, as the following 
 <1> Using `@RequestPart` to get the metadata.
 ====
 
-You can use `@RequestPart` combination with `javax.validation.Valid` or Spring's
-`@Validated` annotation, which causes Standard Bean Validation to be applied.
-By default, validation errors cause a `WebExchangeBindException`, which is turned
-into a 400 (`BAD_REQUEST`) response. Alternatively, you can handle validation errors locally
-within the controller through an `Errors` or `BindingResult` argument, as the following example shows:
+You can use `@RequestPart` in combination with `javax.validation.Valid` or Spring's
+`@Validated` annotation, which causes Standard Bean Validation to be applied. Validation
+errors lead to a `WebExchangeBindException` that results in a 400 (BAD_REQUEST) response.
+The exception contains a `BindingResult` with the error details and can also be handled
+in the controller method by declaring the argument with an async wrapper and then using
+error related operators:
 
 ====
 [source,java,indent=0]
 [subs="verbatim,quotes"]
 ----
-@PostMapping("/")
-public String handle(@Valid @RequestPart("meta-data") MetaData metadata, <1>
-		BindingResult result) { <2>
-	// ...
-}
-----
-<1> Using a `@Valid` annotation.
-<2> Using a `BindingResult` argument.
+	public String handle(@Valid @RequestPart("meta-data") Mono<MetaData> metadata) {
+		// use one of the onError* operators...
 ====
 
 To access all multipart data as a `MultiValueMap`, you can use `@RequestBody`,
@@ -2351,20 +2397,18 @@ You can use the <<webflux-config-message-codecs>> option of the <<webflux-config
 configure or customize message readers.
 
 You can use `@RequestBody` in combination with `javax.validation.Valid` or Spring's
-`@Validated` annotation, which causes Standard Bean Validation to be applied.
-By default, validation errors cause a `WebExchangeBindException`, which is turned
-into a 400 (`BAD_REQUEST`) response. Alternatively, you can handle validation errors locally
-within the controller through an `Errors` or a `BindingResult` argument. The following
-example uses a `BindingResult` argument`:
+`@Validated` annotation, which causes Standard Bean Validation to be applied. Validation
+errors cause a `WebExchangeBindException`, which results in a 400 (BAD_REQUEST) response.
+The exception contains a `BindingResult` with error details and can be handled in the
+controller method by declaring the argument with an async wrapper and then using error
+related operators:
 
 ====
 [source,java,indent=0]
 [subs="verbatim,quotes"]
 ----
-	@PostMapping("/accounts")
-	public void handle(@Valid @RequestBody Account account, BindingResult result) {
-		// ...
-	}
+	public void handle(@Valid @RequestBody Mono<Account> account) {
+		// use one of the onError* operators...
 ----
 ====
 
@@ -2459,7 +2503,7 @@ Spring offers support for the Jackson JSON library.
 [.small]#<<web.adoc#mvc-ann-jackson, Same as in Spring MVC>>#
 
 Spring WebFlux provides built-in support for
-https://wiki.fasterxml.com/JacksonJsonViews[Jackson's Serialization Views],
+https://www.baeldung.com/jackson-json-view-annotation[Jackson's Serialization Views],
 which allows rendering only a subset of all fields in an `Object`. To use it with
 `@ResponseBody` or `ResponseEntity` controller methods, you can use Jackson's
 `@JsonView` annotation to activate a serialization view class, as the following example shows:
@@ -2749,26 +2793,27 @@ an HTTP status code.
 === Controller Advice
 [.small]#<<web.adoc#mvc-ann-controller-advice, Same as in Spring MVC>>#
 
-Typically, the `@ExceptionHandler`, `@InitBinder`, and `@ModelAttribute` methods apply within
-the `@Controller` class (or class hierarchy) in which they are declared. If you want such
-methods to apply more globally (across controllers), you can declare them in a class
-marked with `@ControllerAdvice` or `@RestControllerAdvice`.
+Typically, the `@ExceptionHandler`, `@InitBinder`, and `@ModelAttribute` methods apply
+within the `@Controller` class (or class hierarchy) in which they are declared. If you
+want such methods to apply more globally (across controllers), you can declare them in a
+class annotated with `@ControllerAdvice` or `@RestControllerAdvice`.
 
-`@ControllerAdvice` is marked with `@Component`, which means that such classes can be registered
-as Spring beans through <<core.adoc#beans-java-instantiating-container-scan, component scanning>>.
-`@RestControllerAdvice` is also a meta-annotation marked with both `@ControllerAdvice` and
-`@ResponseBody`, which essentially means `@ExceptionHandler` methods are rendered to the
-response body through message conversion (versus view resolution or template rendering).
+`@ControllerAdvice` is annotated with `@Component`, which means that such classes can be
+registered as Spring beans through <<core.adoc#beans-java-instantiating-container-scan,
+component scanning>>. `@RestControllerAdvice` is a composed annotation that is annotated
+with both `@ControllerAdvice` and `@ResponseBody`, which essentially means
+`@ExceptionHandler` methods are rendered to the response body through message conversion
+(versus view resolution or template rendering).
 
-On startup, the infrastructure classes for `@RequestMapping` and `@ExceptionHandler` methods
-detect Spring beans of type `@ControllerAdvice` and apply their methods at runtime.
-Global `@ExceptionHandler` methods (from a `@ControllerAdvice`) are applied *after* local
-ones (from the `@Controller`). By contrast, global `@ModelAttribute` and `@InitBinder`
-methods are applied *before* local ones.
+On startup, the infrastructure classes for `@RequestMapping` and `@ExceptionHandler`
+methods detect Spring beans annotated with `@ControllerAdvice` and then apply their
+methods at runtime. Global `@ExceptionHandler` methods (from a `@ControllerAdvice`) are
+applied _after_ local ones (from the `@Controller`). By contrast, global `@ModelAttribute`
+and `@InitBinder` methods are applied _before_ local ones.
 
-By default `@ControllerAdvice` methods apply to every request (that is, all controllers), but
-you can narrow that down to a subset of controllers through attributes on the annotation,
-as the following example shows:
+By default, `@ControllerAdvice` methods apply to every request (that is, all controllers),
+but you can narrow that down to a subset of controllers by using attributes on the
+annotation, as the following example shows:
 
 ====
 [source,java,indent=0]
@@ -2788,8 +2833,8 @@ as the following example shows:
 ----
 ====
 
-The preceding selectors are evaluated at runtime and may negatively impact
-performance if you use them extensively. See the
+The selectors in the preceding example are evaluated at runtime and may negatively impact
+performance if used extensively. See the
 {api-spring-framework}/web/bind/annotation/ControllerAdvice.html[`@ControllerAdvice`]
 javadoc for more details.
 
@@ -3057,7 +3102,7 @@ use `FormatterRegistrar` implementations.
 By default, if <<core.adoc#validation-beanvalidation-overview, Bean Validation>> is present
 on the classpath (for example, the Hibernate Validator), the `LocalValidatorFactoryBean`
 is registered as a global <<core.adoc#validator,validator>> for use with `@Valid` and
-`Validated` on `@Controller` method arguments.
+`@Validated` on `@Controller` method arguments.
 
 In your Java configuration, you can customize the global `Validator` instance,
 as the following example shows:
