@@ -143,7 +143,9 @@ public class DefaultResourceLoader implements ResourceLoader {
 	@Override
 	public Resource getResource(String location) {
 		Assert.notNull(location, "Location must not be null");
+		//策略模式，根据不同的参数类型返回不同的Resource
 
+		//ProtocolResolver 用户自动以资源解决策略
 		for (ProtocolResolver protocolResolver : getProtocolResolvers()) {
 			Resource resource = protocolResolver.resolve(location, this);
 			if (resource != null) {
@@ -151,9 +153,12 @@ public class DefaultResourceLoader implements ResourceLoader {
 			}
 		}
 
+		//如果是以/开头，则构造ClassPathContextResource返回
 		if (location.startsWith("/")) {
 			return getResourceByPath(location);
 		}
+		//若以classpath: 开头，则构造ClassPathResource类型资源并返回
+		//在构造该资源时，通过getClassLoader()获取当前的ClassLoader
 		else if (location.startsWith(CLASSPATH_URL_PREFIX)) {
 			return new ClassPathResource(location.substring(CLASSPATH_URL_PREFIX.length()), getClassLoader());
 		}
