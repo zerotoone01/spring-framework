@@ -80,4 +80,20 @@ ResourceLoader：Spring 加载资源的顶层接口，用于从一个源加载�
 MessageSource：解析 message 的策略接口，用不支撑国际化等功能。
 EnvironmentCapable：用于获取 Environment 的接口。
 
+PostProcessor的种类
+大类分为容器级别的后置处理器以及Bean级别的后置处理器
+BeanDefinitionRegistryPostProcessor
+BeanFactoryPostProcessor
+BeanPostProcessor 
 
+
+事件监听器模式
+回调函数：
+* 往组件注册自定义的方法，以便组件在特定场景下调用
+
+监听器将监听感兴趣的事件，一旦事件发生，便做出响应
+* 事件源（Event Source）
+* 事件监听器（Event Listener）
+* 事件对象（Event Object）
+
+Spring的事件监听--ApplicationEvent
