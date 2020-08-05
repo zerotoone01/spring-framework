@@ -59,4 +59,25 @@ org.springframework.beans.factory.support.DefaultListableBeanFactory#registerBea
 
 
 
+Spring 环境 & 属性由四个部分组成：PropertySource、PropertyResolver、Profile 和 Environment。
+
+PropertySource：属性源，key-value 属性对抽象，用于配置数据。
+PropertyResolver：属性解析器，用于解析属性配置
+Profile：剖面，只有激活的剖面的组件/配置才会注册到 Spring 容器，类似于 Spring Boot 中的 profile 。
+Environment：环境，Profile 和 PropertyResolver 的组合。
+
+BeanFactory容器比较简单，ApplicationContext一般才会用到生产环境，ApplicationContext区别于BeanFactory：
+继承 MessageSource，提供国际化的标准访问策略。
+继承 ApplicationEventPublisher ，提供强大的事件机制。
+扩展 ResourceLoader，可以用来加载多个 Resource，可以灵活访问不同的资源。
+对 Web 应用的支持。
+
+
+ApplicationContext 结构类图：
+BeanFactory：Spring 管理 Bean 的顶层接口，我们可以认为他是一个简易版的 Spring 容器。ApplicationContext 继承 BeanFactory 的两个子类：HierarchicalBeanFactory 和 ListableBeanFactory。HierarchicalBeanFactory 是一个具有层级关系的 BeanFactory，拥有属性 parentBeanFactory 。ListableBeanFactory 实现了枚举方法可以列举出当前 BeanFactory 中所有的 bean 对象而不必根据 name 一个一个的获取。
+ApplicationEventPublisher：用于封装事件发布功能的接口，向事件监听器（Listener）发送事件消息。
+ResourceLoader：Spring 加载资源的顶层接口，用于从一个源加载资源文件。ApplicationContext 继承 ResourceLoader 的子类 ResourcePatternResolver，该接口是将 location 解析为 Resource 对象的策略接口。
+MessageSource：解析 message 的策略接口，用不支撑国际化等功能。
+EnvironmentCapable：用于获取 Environment 的接口。
+
 
