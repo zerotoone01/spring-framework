@@ -531,21 +531,25 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 
 	@Override
 	public void refresh() throws BeansException, IllegalStateException {
+		//给容器refresh枷锁，避免容器处于refresh阶段时，容器进行了初始化或者销毁的操作
 		synchronized (this.startupShutdownMonitor) {
 			// Prepare this context for refreshing.
+			//调用容器准备刷新的方法，获取容器的当前时间，同时给容器设置同步标识，具体方法
 			prepareRefresh();
 
 			// Tell the subclass to refresh the internal bean factory.
 			// 创建并初始化 BeanFactory
+			// 告诉子类启动refreshBeanFactory方法，Bean定义资源文件的载入从子类的refreshBeanFactory方法启动，里面有抽象方法
+			// 针对xml配置，最终创建内部容器，该容器负责Bean的创建与管理，此步会进行BeanDefinition的注册
 			ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
 
 			// Prepare the bean factory for use in this context.
-			// 填充BeanFactory功能
+			// 填充BeanFactory功能，例如classloader, beanFactoryPostProcessor
 			prepareBeanFactory(beanFactory);
 
 			try {
 				// Allows post-processing of the bean factory in context subclasses.
-				// 提供子类覆盖的额外处理，即子类处理自定义的BeanFactoryPostProcess
+				// 提供子类覆盖的额外处理，即子类处理自定义的BeanFactoryPostProcess， 钩子方法
 				postProcessBeanFactory(beanFactory);
 
 				// Invoke factory processors registered as beans in the context.
@@ -562,6 +566,7 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 
 				// Initialize event multicaster for this context.
 				// 初始化上下文事件广播器
+				// 可以存储所有时间监听者信息，并根据不同的事件，通知不同的事件监听者
 				initApplicationEventMulticaster();
 
 				// Initialize other special beans in specific context subclasses.
@@ -711,6 +716,7 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 
 		// Detect a LoadTimeWeaver and prepare for weaving, if found.
 		// 增加对AspectJ的支持
+		// 若果找到一个LoadTimerWeaver,那么就准备将后置处理器织入bean工厂
 		if (!IN_NATIVE_IMAGE && beanFactory.containsBean(LOAD_TIME_WEAVER_BEAN_NAME)) {
 			beanFactory.addBeanPostProcessor(new LoadTimeWeaverAwareProcessor(beanFactory));
 			// Set a temporary ClassLoader for type matching.
@@ -912,22 +918,27 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		// (such as a PropertyPlaceholderConfigurer bean) registered any before:
 		// at this point, primarily for resolution in annotation attribute values.
 		// 如果之前没有注册 bean 后置处理器（例如PropertyPlaceholderConfigurer），则注册默认的解析器
+		// @value注解或在xml中使用${}的方式进行环境相关的配置
 		if (!beanFactory.hasEmbeddedValueResolver()) {
 			beanFactory.addEmbeddedValueResolver(strVal -> getEnvironment().resolvePlaceholders(strVal));
 		}
 
 		// Initialize LoadTimeWeaverAware beans early to allow for registering their transformers early.
 		// 初始化 Initialize LoadTimeWeaverAware beans early to allow for registering their transformers early.
+		// AOP分为三种方式：编译期织入、类加期织入和运行期织入
+		// LoadTimeWeaver 属于第二种，主要通过jvm进行织入
+		// 先初始化LoadTimeWeaverAware bean，以便尽早注册它们的transformers
 		String[] weaverAwareNames = beanFactory.getBeanNamesForType(LoadTimeWeaverAware.class, false, false);
 		for (String weaverAwareName : weaverAwareNames) {
 			getBean(weaverAwareName);
 		}
 
 		// Stop using the temporary ClassLoader for type matching.
-		// 停止使用临时的 ClassLoader
+		// 停止使用临时的 ClassLoader，在这一步以前已经完成实例加载了
 		beanFactory.setTempClassLoader(null);
 
 		// Allow for caching all bean definition metadata, not expecting further changes.
+		// 允许缓存所有bean定义元数据，不希望有进一步的更改
 		beanFactory.freezeConfiguration();
 
 		// Instantiate all remaining (non-lazy-init) singletons.
@@ -954,6 +965,8 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		publishEvent(new ContextRefreshedEvent(this));
 
 		// Participate in LiveBeansView MBean, if active.
+		//目的是向jmx（Java Management Extensions，一种java规范 ）注册容器，
+		//容器具备了jmx功能，让程序有被管理，方便监控和运维服务掌控容器的相关信息，甚至动态调整配置信息
 		if (!IN_NATIVE_IMAGE) {
 			LiveBeansView.registerApplicationContext(this);
 		}
