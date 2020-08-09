@@ -120,3 +120,26 @@ registerListeners--向前面的时间发布组件注册事件监听者
 finishBeanFactoryInitialization--设置系统级别的服务，实例化所有非懒加载的单例
 finishRefresh--触发初始化完成的回调方法，并发布容器刷新完成的事件给监听者
 resetCommonCaches--重置spring内核中的共用缓存
+
+
+
+#### 依赖注入重点学习的路线
+目标--理清依赖注入的思路
+
+AbstractBeanFactory#doGetBean--获取Bean实例
+DefaultSingletonBeanRegistry
+```
+#getSingleton--获取单实例
+三级缓存--解决循环依赖
+```
+AbstractAutowireCapableBeanFactory
+```
+#createBean -- 创建Bean实例的准备
+#doCreateBean  -- 创建Bean实例
+#applyMergedBeanDefinitionPostProcessors -- 处理@Autowired以及@Value
+#populateBean -- 给Bean实例注入属性（依赖在此注入）
+```
+AutowiredAnnotationBeanPostProcessor #postProcessProperties -- Autowired的依赖注入逻辑
+DefaultListableBeanFactory#doResolveDependecy -- 依赖解析
+DependencyDescriptor#injectionPoint -- 创建依赖实例，实现依赖注入
+
