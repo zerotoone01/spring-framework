@@ -253,8 +253,10 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 		// 从缓存中或者实例工厂中获取 Bean 对象
 		// Eagerly check singleton cache for manually registered singletons.
 		Object sharedInstance = getSingleton(beanName);
+		// args要求为空，如果不为空，则需要进一步赋值，因此无法直接返回
 		if (sharedInstance != null && args == null) {
 			if (logger.isTraceEnabled()) {
+				// 如果Bean还在创建中，则说明是循环引用
 				if (isSingletonCurrentlyInCreation(beanName)) {
 					logger.trace("Returning eagerly cached instance of singleton bean '" + beanName +
 							"' that is not fully initialized yet - a consequence of a circular reference");
@@ -264,6 +266,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				}
 			}
 			// <2> 完成 FactoryBean 的相关处理，并用来获取 FactoryBean 的处理结果
+			// 如果是普通Bean，直接返回，如果是FactoryBean，则返回他的getObject
 			bean = getObjectForBeanInstance(sharedInstance, name, beanName, null);
 		}
 
@@ -271,7 +274,12 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			// Fail if we're already creating this bean instance:
 			// We're assumably within a circular reference.
 			// <3> 因为 Spring 只解决单例模式下得循环依赖，在原型模式下如果存在循环依赖则会抛出异常。
+			// 如果scope为prototype并且显示还在创建中，则基本是循环依赖的情况
+			// 针对prototype的循环依赖，spring无解，直接抛出异常
+			// 循环依赖 A-->B-->A， 在创建A过程，发现A依赖B，则继续创建B，而B依赖于A,A还在创建中，放在isPrototypeCurrentlyInCreation，因此可以判断为循环依赖
+			//TODO spring 怎么解决循环依赖的问题呢？
 			if (isPrototypeCurrentlyInCreation(beanName)) {
+				//当前代码说明spring默认是不支持循环依赖的
 				throw new BeanCurrentlyInCreationException(beanName);
 			}
 
@@ -281,16 +289,18 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			// parentBeanFactory 不为空且 beanDefinitionMap 中不存该 name 的 BeanDefinition
 			if (parentBeanFactory != null && !containsBeanDefinition(beanName)) {
 				// Not found -> check parent.
-				// 确定原始 beanName
+				// 确定原始 beanName，主要是针对FactoryBean，将Bean的&重新加上
 				String nameToLookup = originalBeanName(name);
 				// 若为 AbstractBeanFactory 类型，委托父类处理
 				if (parentBeanFactory instanceof AbstractBeanFactory) {
+					// 直接递归调用方法来查找
 					return ((AbstractBeanFactory) parentBeanFactory).doGetBean(
 							nameToLookup, requiredType, args, typeCheckOnly);
 				}
 				else if (args != null) {
 					// Delegation to parent with explicit args.
-					// 委托给构造函数 getBean() 处理
+					// 如果有参数，则委托父级容器根据指定名称和显式的参数查找，
+					// 给构造函数 getBean() 处理
 					return (T) parentBeanFactory.getBean(nameToLookup, args);
 				}
 				else if (requiredType != null) {
@@ -319,18 +329,29 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				// Guarantee initialization of beans that the current bean depends on.
 				// <7> 处理所依赖的 bean
 				String[] dependsOn = mbd.getDependsOn();
+				// 如果当前Bean设置了dependsOn属性
+				// depends-on用来指定Bean初始化及销毁时的顺序
+				// <bean id=a Class="com.huangxi.A" depends-on="b">
+				// <bean id=b Class="com.huangxi.B">
 				if (dependsOn != null) {
 					for (String dep : dependsOn) {
 						//为true表示存在循环依赖
 						//TODO spring如何解决循环依赖呢
+
+						// 如果显式指定了循环依赖, 如下，则抛出异常
+						// <bean id="beanA" Class="BeanA" depends-on="beanB">
+						// <bean id="beanB" Class="BeanB" depends-on="beanA">
 						if (isDependent(beanName, dep)) {
 							throw new BeanCreationException(mbd.getResourceDescription(), beanName,
 									"Circular depends-on relationship between '" + beanName + "' and '" + dep + "'");
 						}
 						// 若给定的依赖 bean 已经注册为依赖给定的 bean
-						// 循环依赖的情况
+						// 如果不是循环依赖的情况
+						// 缓存依赖调用，这里传入的key是被依赖的bean名称
 						registerDependentBean(dep, beanName);
 						try {
+							//递归调用getBean方法，注册Bean之间的依赖（如C需要依赖晚于B初始化，而B需要晚于A初始化）
+							//初始化依赖的Bean
 							getBean(dep);
 						}
 						catch (NoSuchBeanDefinitionException ex) {
@@ -374,7 +395,8 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 					// <4> 从 Bean 实例中获取对象
 					bean = getObjectForBeanInstance(prototypeInstance, name, beanName, mbd);
 				}
-
+				//要创建的Bean既不是单例模式，也不是原型模式，则根据Bean定义资源中配置的生命周期范围来选择实例化Bean的合适方法
+				//这种在web应用程序中比较常用，比如：request、session、application等生命周期
 				else {
 					// 从指定的 scope 下创建 bean
 					String scopeName = mbd.getScope();
@@ -382,6 +404,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 						throw new IllegalStateException("No scope name defined for bean ´" + beanName + "'");
 					}
 					Scope scope = this.scopes.get(scopeName);
+					// bean定义资源没有配置生命周期范围，则Bean定义不合法
 					if (scope == null) {
 						throw new IllegalStateException("No Scope registered for scope name '" + scopeName + "'");
 					}
@@ -1780,6 +1803,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				if (!this.alreadyCreated.contains(beanName)) {
 					// Let the bean definition get re-merged now that we're actually creating
 					// the bean... just in case some of its metadata changed in the meantime.
+					// 原数据被改动之后，能及时更新
 					clearMergedBeanDefinition(beanName);
 					this.alreadyCreated.add(beanName);
 				}
@@ -1878,6 +1902,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 		}
 		// <3> 若 BeanDefinition 为 null，则从缓存中加载 Bean 对象
 		else {
+			// 单例模式下，FactoryBean仅会创建一个Bean实例， 因此需要优先从缓存中获取
 			object = getCachedObjectForFactoryBean(beanName);
 		}
 		// 若 object 依然为空，则可以确认，beanInstance 一定是 FactoryBean 。从而，使用 FactoryBean 获得 Bean 对象
