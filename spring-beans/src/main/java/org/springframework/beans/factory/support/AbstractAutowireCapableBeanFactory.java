@@ -506,6 +506,9 @@ public abstract class AbstractAutowireCapableBeanFactory extends AbstractBeanFac
 		// 主要是因为该动态解析的 class 无法保存到到共享的 BeanDefinition
 		Class<?> resolvedClass = resolveBeanClass(mbd, beanName);
 		if (resolvedClass != null && !mbd.hasBeanClass() && mbd.getBeanClassName() != null) {
+			//克隆一份BeanDefinition，用来设置上加载出来的Class对象
+			//后续要用该副本，是因为不希望将解析的class绑定到缓存里的BeanDefinition
+			//猜测目的是：class有可能是每次都需要动态解析出来的
 			mbdToUse = new RootBeanDefinition(mbd);
 			mbdToUse.setBeanClass(resolvedClass);
 		}
@@ -525,6 +528,11 @@ public abstract class AbstractAutowireCapableBeanFactory extends AbstractBeanFac
 			// <3> 实例化的前置处理
 			// 给 BeanPostProcessors 一个机会用来返回一个代理类而不是真正的类实例
 			// AOP 的功能就是基于这个地方
+
+			//如果Bean配置了初始化前和初始化后的处理器，则试图返回一个需要创建Bean的代理对象
+			//resolveBeforeInstantiation只针对有自定义的targetsource
+			//因为自定义的targetsource不是spring的bean，那么肯定不需要进行后续的一系列的实例化，初始化。
+			//所以可以在resolveBeforeInstantiation直接进行proxy
 			Object bean = resolveBeforeInstantiation(beanName, mbdToUse);
 			if (bean != null) {
 				return bean;
@@ -1141,8 +1149,11 @@ public abstract class AbstractAutowireCapableBeanFactory extends AbstractBeanFac
 	@Nullable
 	protected Object resolveBeforeInstantiation(String beanName, RootBeanDefinition mbd) {
 		Object bean = null;
+		//如果beforeInstantiationResolved还没有设置或者是false，说明还没有需要在实例化前执行的操作
 		if (!Boolean.FALSE.equals(mbd.beforeInstantiationResolved)) {
 			// Make sure bean class is actually resolved at this point.
+			//mbd.isSynthetic()默认是false
+			//如果注册了InstantiationAwareBeanPostProcessors类型的BeanPostProcessor
 			if (!mbd.isSynthetic() && hasInstantiationAwareBeanPostProcessors()) {
 				Class<?> targetType = determineTargetType(beanName, mbd);
 				if (targetType != null) {
@@ -1170,7 +1181,9 @@ public abstract class AbstractAutowireCapableBeanFactory extends AbstractBeanFac
 	 */
 	@Nullable
 	protected Object applyBeanPostProcessorsBeforeInstantiation(Class<?> beanClass, String beanName) {
+		//责任链模式，貌似spring的后置处理都是该设计模式
 		for (InstantiationAwareBeanPostProcessor bp : getBeanPostProcessorCache().instantiationAware) {
+			//可以在这一步进行偷梁换柱
 			Object result = bp.postProcessBeforeInstantiation(beanClass, beanName);
 			if (result != null) {
 				return result;

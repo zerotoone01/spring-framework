@@ -143,6 +143,10 @@ AutowiredAnnotationBeanPostProcessor #postProcessProperties -- Autowired的依�
 DefaultListableBeanFactory#doResolveDependecy -- 依赖解析
 DependencyDescriptor#injectionPoint -- 创建依赖实例，实现依赖注入
 
+org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(java.lang.String, org.springframework.beans.factory.support.RootBeanDefinition, java.lang.Object[])
+>以下操作： Bean类型解析； 处理方法覆盖； Bean实例化前的后置处理；doCreateBean;
+
+
 org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean:
 1.尝试从缓存获取Bean
 2.循环依赖的的判断
