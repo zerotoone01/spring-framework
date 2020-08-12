@@ -19,7 +19,7 @@ import org.springframework.context.support.FileSystemXmlApplicationContext;
 @Configuration
 @ComponentScan("com.huangxi")
 public class MyApp {
-	public static void main1(String[] args) {
+	public static void main(String[] args) {
 		System.out.println("hello world!");
 		String dir = System.getProperty("user.dir");
 		System.out.println("dir= "+dir);
@@ -59,7 +59,7 @@ public class MyApp {
 		System.out.println("user5b="+user5b);
 	}
 
-	public static void main(String[] args) {
+	public static void main1(String[] args) {
 		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
 		String[] beanDefinitionNames = applicationContext.getBeanDefinitionNames();
 		for(String beanDefinition: beanDefinitionNames){

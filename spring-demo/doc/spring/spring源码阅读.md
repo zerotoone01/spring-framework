@@ -143,8 +143,6 @@ AutowiredAnnotationBeanPostProcessor #postProcessProperties -- Autowired的依�
 DefaultListableBeanFactory#doResolveDependecy -- 依赖解析
 DependencyDescriptor#injectionPoint -- 创建依赖实例，实现依赖注入
 
-org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(java.lang.String, org.springframework.beans.factory.support.RootBeanDefinition, java.lang.Object[])
->以下操作： Bean类型解析； 处理方法覆盖； Bean实例化前的后置处理；doCreateBean;
 
 
 org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean:
@@ -156,3 +154,13 @@ org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean:
 6.根据不同的Scope采用不同的策略创建Bean实例
 7.对Bean进行类检查
 
+org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(java.lang.String, org.springframework.beans.factory.support.RootBeanDefinition, java.lang.Object[])
+>以下操作： Bean类型解析； 处理方法覆盖； Bean实例化前的后置处理；doCreateBean;
+
+doCreateBean
+>记录下呗@Autowired或者@Value标记上的方法和成员变量
+>是否允许提前暴露
+>填充bean属性
+>initializeBean
+>注册相关销毁逻辑
+>返回好创建好的实例

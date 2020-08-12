@@ -62,12 +62,15 @@ public class SimpleInstantiationStrategy implements InstantiationStrategy {
 	public Object instantiate(RootBeanDefinition bd, @Nullable String beanName, BeanFactory owner) {
 		// Don't override the class with CGLIB if no overrides.
 		// 没有覆盖，直接使用反射实例化即可
+		//如果Bean定义里面的方法没有被覆盖，则不需要CGLIB来重写
 		if (!bd.hasMethodOverrides()) {
 			Constructor<?> constructorToUse;
 			synchronized (bd.constructorArgumentLock) {
 				// 获得构造方法 constructorToUse
+				//获取对象的构造方法或者工厂方法
 				constructorToUse = (Constructor<?>) bd.resolvedConstructorOrFactoryMethod;
 				if (constructorToUse == null) {
+					//使用反射机制获取Bean的类，看看是否是接口
 					final Class<?> clazz = bd.getBeanClass();
 					// 如果是接口，抛出 BeanInstantiationException 异常
 					if (clazz.isInterface()) {
@@ -91,6 +94,7 @@ public class SimpleInstantiationStrategy implements InstantiationStrategy {
 				}
 			}
 			// 通过 BeanUtils 直接使用构造器对象实例化 Bean 对象
+			//最终调用newInstance方法通过反射来获取实例
 			return BeanUtils.instantiateClass(constructorToUse);
 		}
 		else {
