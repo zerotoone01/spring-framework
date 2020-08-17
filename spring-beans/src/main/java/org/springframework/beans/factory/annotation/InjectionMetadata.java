@@ -125,9 +125,11 @@ public class InjectionMetadata {
 
 	public void inject(Object target, @Nullable String beanName, @Nullable PropertyValues pvs) throws Throwable {
 		Collection<InjectedElement> checkedElements = this.checkedElements;
+		//要注入的字段集合
 		Collection<InjectedElement> elementsToIterate =
 				(checkedElements != null ? checkedElements : this.injectedElements);
 		if (!elementsToIterate.isEmpty()) {
+			//遍历每个字段并进行注入
 			for (InjectedElement element : elementsToIterate) {
 				if (logger.isTraceEnabled()) {
 					logger.trace("Processing injected element of bean '" + beanName + "': " + element);
@@ -242,6 +244,7 @@ public class InjectionMetadata {
 				throws Throwable {
 
 			if (this.isField) {
+				//获取要注入的成员变量
 				Field field = (Field) this.member;
 				ReflectionUtils.makeAccessible(field);
 				field.set(target, getResourceToInject(target, requestingBeanName));

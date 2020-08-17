@@ -164,3 +164,34 @@ doCreateBean
 >initializeBean
 >注册相关销毁逻辑
 >返回好创建好的实例
+
+spring循环依赖解决    
+org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean  
+![spring循环依赖](./img/spring循环依赖.png)  
+示例代码有如下两个类，存在循环依赖，可以在图中所示关键地方打断点： #addSingletonFactory  
+com.huangxi.dao.impl.GirlFriend/com.huangxi.dao.impl.BoyFriend
+>idea中 使设置断点停止条件： beanName.equals(""boyFriend")||beanName.equals(""girlFriend")
+
+面试题： spring是否支持所有循环依赖的情况    
+循环依赖情况如下：
+>构造器循环依赖(singleton、prototype)
+>Setter注入循环依赖(singleton、prototype)
+
+spring不支持prototype的循环依赖
+>因为没有设置三级缓存进行支持。 1.只能通过将Bean名字放入缓存里阻断无限循环；2.只支持setter注入的单例循环循环依赖
+>
+
+org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.populateBean 方法：  
+
+入口 org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean 调用的 populateBean 方法    
+
+>学习思路：
+>1.populateBean方法调用的层级很深，不要太在意细节，只需要大致了解里面做的事情即可，
+>2.在战略上要掌握脉络，带着问题再去了解细节
+
+>方法主体部分
+>1.postProcessorAfterInstantiation: 在设置属性前去修改Bean状态，也可以控制是否继续给Bean设置属性
+>2.注入属性到PropertyValues中（按名字转配 or 按类型装配）
+>3.postProcessorPropertyValues: 对解析完但未设置的属性进行再处理
+>4.是否进行依赖检查
+>5.将PropertyValues中的属性值设置到BeanWrapper中

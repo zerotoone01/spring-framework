@@ -1,9 +1,11 @@
 package com.huangxi;
 
 import com.huangxi.controller.WelcomeController;
+import com.huangxi.dao.impl.Company;
 import com.huangxi.entity.User;
 import com.huangxi.entity.factory.UserFactoryBean;
 import com.huangxi.service.WelcomeService;
+import org.springframework.beans.factory.support.AbstractBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
@@ -19,7 +21,7 @@ import org.springframework.context.support.FileSystemXmlApplicationContext;
 @Configuration
 @ComponentScan("com.huangxi")
 public class MyApp {
-	public static void main(String[] args) {
+	public static void main0(String[] args) {
 		System.out.println("hello world!");
 		String dir = System.getProperty("user.dir");
 		System.out.println("dir= "+dir);
@@ -61,6 +63,7 @@ public class MyApp {
 
 	public static void main1(String[] args) {
 		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
+
 		String[] beanDefinitionNames = applicationContext.getBeanDefinitionNames();
 		for(String beanDefinition: beanDefinitionNames){
 			System.out.println(beanDefinition);
@@ -72,5 +75,19 @@ public class MyApp {
 		//com.huangxi.postprocessor.CustomizedBeanDefinitionRegistryPostProcessor.postProcessBeanDefinitionRegistry
 		User userPostProcessor = (User) applicationContext.getBean("userPostProcessor");
 		System.out.println("CustomizedBeanDefinitionRegistryPostProcessor create bean: "+userPostProcessor);
+	}
+
+	/**
+	 * @see AbstractBeanFactory#doGetBean(java.lang.String, java.lang.Class, java.lang.Object[], boolean)
+	 *   if (isPrototypeCurrentlyInCreation(beanName)) {throw new BeanCurrentlyInCreationException(beanName);}
+	 * @see AbstractBeanFactory#isPrototypeCurrentlyInCreation(java.lang.String)
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
+		Company company = (Company)applicationContext.getBean("company");
+		// 以上代码直接启动，会报错，显示循环依赖问题， spring是不支持 prototype 类型的循环依赖
+
+
 	}
 }
