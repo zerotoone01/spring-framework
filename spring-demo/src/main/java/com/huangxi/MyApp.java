@@ -1,15 +1,20 @@
 package com.huangxi;
 
+import com.huangxi.aspect.ServiceAspect;
+import com.huangxi.controller.HelloController;
+import com.huangxi.controller.HiController;
 import com.huangxi.controller.WelcomeController;
 import com.huangxi.dao.impl.Company;
 import com.huangxi.entity.User;
 import com.huangxi.entity.factory.UserFactoryBean;
+import com.huangxi.introduction.LittleUniverse;
 import com.huangxi.service.WelcomeService;
 import org.springframework.beans.factory.support.AbstractBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.context.support.FileSystemXmlApplicationContext;
 
 /**
@@ -19,6 +24,7 @@ import org.springframework.context.support.FileSystemXmlApplicationContext;
 
 // 解析注解类测试
 @Configuration
+@EnableAspectJAutoProxy
 @ComponentScan("com.huangxi")
 public class MyApp {
 	public static void main0(String[] args) {
@@ -78,16 +84,42 @@ public class MyApp {
 	}
 
 	/**
+	 * 测试 不同 @Scope模式下的 @Autowired 注入
 	 * @see AbstractBeanFactory#doGetBean(java.lang.String, java.lang.Class, java.lang.Object[], boolean)
 	 *   if (isPrototypeCurrentlyInCreation(beanName)) {throw new BeanCurrentlyInCreationException(beanName);}
 	 * @see AbstractBeanFactory#isPrototypeCurrentlyInCreation(java.lang.String)
 	 * @param args
 	 */
-	public static void main(String[] args) {
+	public static void main2(String[] args) {
 		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
 		Company company = (Company)applicationContext.getBean("company");
 		// 以上代码直接启动，会报错，显示循环依赖问题， spring是不支持 prototype 类型的循环依赖
+	}
 
+	/**
+	 * 测试 Spring AOP
+	 *  spring 容器默认是不开启AOP识别的，需要app类上添加 @EnableAspectJAutoProxy 注解
+	 * @param args
+	 */
+	public static void main3(String[] args) {
+		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
+		System.out.println("==============Spring AOP is coming===============");
+		HelloController helloController = (HelloController)applicationContext.getBean("helloController");
+		helloController.handleRequest();
+		HiController hiController = (HiController)applicationContext.getBean("hiController");
+		hiController.handleRequest();
+		}
 
+	/**
+	 * 测试切面 Introduction
+	 * Introduction 比较骚，不方便代码阅读，一般不怎么用
+	 * @see ServiceAspect#littleUniverse
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		ApplicationContext applicationContext = new AnnotationConfigApplicationContext(MyApp.class);
+		System.out.println("==============Spring AOP is coming===============");
+		HiController hiController = (HiController)applicationContext.getBean("hiController");
+		((LittleUniverse)hiController).burningUp();
 	}
 }

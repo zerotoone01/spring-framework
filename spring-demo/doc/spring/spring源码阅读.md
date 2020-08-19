@@ -195,3 +195,11 @@ org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.pop
 >3.postProcessorPropertyValues: 对解析完但未设置的属性进行再处理
 >4.是否进行依赖检查
 >5.将PropertyValues中的属性值设置到BeanWrapper中
+
+AOP
+
+单个AOP执行顺序   
+![单个AOP执行顺序](./img/单个AOP执行顺序.png)
+多个aspect执行顺序
+![多个aspect执行顺序.png](./img/多个aspect执行顺序.png)
+
